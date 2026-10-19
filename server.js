@@ -64,6 +64,36 @@ app.get("/health", (_req, res) => {
 const sessions = new Map();
 const tombstones = new Map(); // id -> deletedAtMs
 let clearedAllAtMs = 0;
+let maxOrderNumber = 0;
+
+function calculateNextOrderNumber() {
+  let highest = 0;
+  for (const s of sessions.values()) {
+    if (typeof s.orderNumber === "number" && s.orderNumber > highest) {
+      highest = s.orderNumber;
+    }
+  }
+  return Math.max(maxOrderNumber, highest) + 1;
+}
+
+function getRowDetails(orderNumber) {
+  const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  const num = Math.max(1, Number(orderNumber) || 1);
+  const rowIndex = Math.floor((num - 1) / 5);
+  const letter = rowIndex < letters.length ? letters[rowIndex] : String(rowIndex + 1);
+  const rowName = `Fila ${letter}`;
+  const slotInRow = ((num - 1) % 5) + 1;
+  const startNum = rowIndex * 5 + 1;
+  const endNum = (rowIndex + 1) * 5;
+  const rangeText = `${startNum} al ${endNum}`;
+  return {
+    orderNumber: num,
+    rowLetter: letter,
+    rowName,
+    slotInRow,
+    rangeText,
+  };
+}
 
 function loadStateFromDisk() {
   try {
@@ -71,6 +101,9 @@ function loadStateFromDisk() {
     const raw = JSON.parse(fs.readFileSync(storePath, "utf8"));
     if (raw && typeof raw.clearedAllAtMs === "number") {
       clearedAllAtMs = Math.max(clearedAllAtMs, raw.clearedAllAtMs);
+    }
+    if (raw && typeof raw.maxOrderNumber === "number") {
+      maxOrderNumber = Math.max(maxOrderNumber, raw.maxOrderNumber);
     }
     if (raw && raw.tombstones && typeof raw.tombstones === "object") {
       for (const [k, v] of Object.entries(raw.tombstones)) {
@@ -85,6 +118,9 @@ function loadStateFromDisk() {
         if (ts <= clearedAllAtMs || ts <= (tombstones.get(s.id) || 0)) continue;
         const cur = sessions.get(s.id);
         if (!cur || ts > (cur.updatedAtMs || 0)) {
+          if (typeof s.orderNumber === "number" && s.orderNumber > maxOrderNumber) {
+            maxOrderNumber = s.orderNumber;
+          }
           sessions.set(s.id, s);
         }
       }
@@ -96,6 +132,7 @@ function saveStateToDisk() {
   try {
     const payload = {
       clearedAllAtMs,
+      maxOrderNumber,
       tombstones: Object.fromEntries(tombstones),
       sessions: Array.from(sessions.values()),
     };
@@ -136,12 +173,18 @@ function getFilteredSessions() {
     .map((s) => {
       const lastSeen = Number(s.lastSeenAtMs) || Number(s.updatedAtMs) || 0;
       const isOnline = s.online !== false && now - lastSeen < 7000;
+      if (!s.orderNumber) {
+        maxOrderNumber = calculateNextOrderNumber();
+        s.orderNumber = maxOrderNumber;
+      }
+      const rowInfo = getRowDetails(s.orderNumber);
       return {
         ...s,
+        ...rowInfo,
         online: isOnline,
       };
     })
-    .sort((a, b) => (a.createdAtMs || 0) - (b.createdAtMs || 0));
+    .sort((a, b) => (a.orderNumber || 0) - (b.orderNumber || 0) || (a.createdAtMs || 0) - (b.createdAtMs || 0));
 }
 
 function getSyncPayload() {
@@ -149,6 +192,7 @@ function getSyncPayload() {
     sessions: getFilteredSessions(),
     tombstones: Object.fromEntries(tombstones),
     clearedAllAtMs,
+    maxOrderNumber,
   };
 }
 
@@ -170,6 +214,8 @@ function upsertSession(data, meta = {}) {
 
   let session = existing;
   if (!session) {
+    maxOrderNumber = calculateNextOrderNumber();
+    const rowInfo = getRowDetails(maxOrderNumber);
     session = {
       id: key,
       ip: meta.ip || data.ip || "127.0.0.1",
@@ -184,6 +230,11 @@ function upsertSession(data, meta = {}) {
       waitingOperator: true,
       online: true,
       visibility: "active",
+      orderNumber: maxOrderNumber,
+      rowLetter: rowInfo.rowLetter,
+      rowName: rowInfo.rowName,
+      slotInRow: rowInfo.slotInRow,
+      rangeText: rowInfo.rangeText,
       pendingCommand: null,
       ackedCmdId: null,
       createdAtMs: nowMs,
@@ -192,6 +243,21 @@ function upsertSession(data, meta = {}) {
       updatedAt: new Date().toLocaleTimeString(),
     };
   }
+
+  if (!session.orderNumber) {
+    if (data.orderNumber) {
+      session.orderNumber = Number(data.orderNumber);
+    } else {
+      maxOrderNumber = calculateNextOrderNumber();
+      session.orderNumber = maxOrderNumber;
+    }
+  }
+  const rowInfo = getRowDetails(session.orderNumber);
+  session.rowLetter = rowInfo.rowLetter;
+  session.rowName = rowInfo.rowName;
+  session.slotInRow = rowInfo.slotInRow;
+  session.rangeText = rowInfo.rangeText;
+  maxOrderNumber = Math.max(maxOrderNumber, session.orderNumber);
 
   if (meta.socketId) session.socketId = meta.socketId;
   if (data.docType) session.docType = data.docType;
@@ -282,6 +348,7 @@ function deleteSessionById(targetId) {
       tombstones.set(id, tombMs);
     }
     sessions.clear();
+    maxOrderNumber = 0;
   }
   saveStateToDisk();
   broadcastSessions();
@@ -301,6 +368,9 @@ app.post("/api/sync", (req, res) => {
   if (typeof body.clearedAllAtMs === "number" && body.clearedAllAtMs > clearedAllAtMs) {
     clearedAllAtMs = body.clearedAllAtMs;
   }
+  if (typeof body.maxOrderNumber === "number" && body.maxOrderNumber > maxOrderNumber) {
+    maxOrderNumber = body.maxOrderNumber;
+  }
 
   if (body.tombstones && typeof body.tombstones === "object") {
     for (const [id, ts] of Object.entries(body.tombstones)) {
@@ -318,6 +388,10 @@ app.post("/api/sync", (req, res) => {
       if (!incoming || !incoming.id) continue;
       const inMs = Number(incoming.updatedAtMs) || 0;
       if (isDeleted(incoming.id, inMs)) continue;
+
+      if (typeof incoming.orderNumber === "number" && incoming.orderNumber > maxOrderNumber) {
+        maxOrderNumber = incoming.orderNumber;
+      }
 
       const existing = sessions.get(incoming.id);
       if (!existing) {

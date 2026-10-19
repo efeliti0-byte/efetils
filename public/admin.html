@@ -110,9 +110,104 @@
       font-size: 14px;
     }
 
+    .rows-container {
+      display: flex;
+      flex-direction: column;
+      gap: 32px;
+    }
+
+    .row-group {
+      background: rgba(17, 24, 39, 0.6);
+      backdrop-filter: blur(14px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 20px;
+      padding: 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+      transition: all 0.2s ease;
+    }
+
+    .row-group.fila-a {
+      border-color: rgba(59, 130, 246, 0.3);
+      background: linear-gradient(180deg, rgba(59, 130, 246, 0.06) 0%, rgba(17, 24, 39, 0.65) 100%);
+    }
+
+    .row-group.fila-b {
+      border-color: rgba(139, 92, 246, 0.3);
+      background: linear-gradient(180deg, rgba(139, 92, 246, 0.06) 0%, rgba(17, 24, 39, 0.65) 100%);
+    }
+
+    .row-group.fila-c {
+      border-color: rgba(16, 185, 129, 0.3);
+      background: linear-gradient(180deg, rgba(16, 185, 129, 0.06) 0%, rgba(17, 24, 39, 0.65) 100%);
+    }
+
+    .row-group.fila-d {
+      border-color: rgba(245, 158, 11, 0.3);
+      background: linear-gradient(180deg, rgba(245, 158, 11, 0.06) 0%, rgba(17, 24, 39, 0.65) 100%);
+    }
+
+    .row-group-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .row-title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .row-letter-pill {
+      background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+      color: #ffffff;
+      font-weight: 800;
+      font-size: 13px;
+      padding: 6px 16px;
+      border-radius: 8px;
+      letter-spacing: 0.8px;
+      box-shadow: 0 4px 14px rgba(59, 130, 246, 0.35);
+    }
+
+    .row-letter-pill.fila-b {
+      background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+      box-shadow: 0 4px 14px rgba(139, 92, 246, 0.35);
+    }
+
+    .row-letter-pill.fila-c {
+      background: linear-gradient(135deg, #10b981, #047857);
+      box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
+    }
+
+    .row-letter-pill.fila-d {
+      background: linear-gradient(135deg, #f59e0b, #d97706);
+      box-shadow: 0 4px 14px rgba(245, 158, 11, 0.35);
+    }
+
+    .row-range-text {
+      color: var(--text-muted);
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .row-slots-badge {
+      font-size: 13px;
+      font-weight: 600;
+      color: #93c5fd;
+      background: rgba(59, 130, 246, 0.12);
+      padding: 5px 14px;
+      border-radius: 20px;
+      border: 1px solid rgba(59, 130, 246, 0.25);
+    }
+
     .sessions-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
       gap: 20px;
     }
 
@@ -136,6 +231,41 @@
     .session-card.waiting-operator {
       border-color: rgba(59, 130, 246, 0.7);
       box-shadow: 0 0 22px rgba(59, 130, 246, 0.2);
+    }
+
+    .card-order-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 8px;
+      background: rgba(59, 130, 246, 0.16);
+      color: #93c5fd;
+      border: 1px solid rgba(59, 130, 246, 0.35);
+      letter-spacing: 0.3px;
+    }
+    .card-order-tag .order-num {
+      font-size: 15px;
+      font-weight: 800;
+      color: #ffffff;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .card-order-tag.fila-b {
+      background: rgba(139, 92, 246, 0.16);
+      color: #c4b5fd;
+      border-color: rgba(139, 92, 246, 0.35);
+    }
+    .card-order-tag.fila-c {
+      background: rgba(16, 185, 129, 0.16);
+      color: #6ee7b7;
+      border-color: rgba(16, 185, 129, 0.35);
+    }
+    .card-order-tag.fila-d {
+      background: rgba(245, 158, 11, 0.16);
+      color: #fcd34d;
+      border-color: rgba(245, 158, 11, 0.35);
     }
 
     .card-top {
@@ -352,7 +482,7 @@
     </header>
 
     <main>
-      <div id="operator-sessions-list" class="sessions-grid">
+      <div id="operator-sessions-list" class="rows-container">
         <div class="empty-state">
           <h3>⚡ Esperando usuarios conectados...</h3>
           <p>Los datos ingresados por los usuarios en <b>/banca</b> aparecerán aquí en tiempo real.</p>
@@ -362,6 +492,6 @@
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
-  <script src="/js/panel-admin.js?v=5"></script>
+  <script src="/js/panel-admin.js?v=6"></script>
 </body>
 </html>

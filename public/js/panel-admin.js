@@ -73,6 +73,25 @@
       .replace(/'/g, "&#39;");
   }
 
+  function getRowDetails(orderNumber) {
+    const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const num = Math.max(1, Number(orderNumber) || 1);
+    const rowIndex = Math.floor((num - 1) / 5);
+    const letter = rowIndex < letters.length ? letters[rowIndex] : String(rowIndex + 1);
+    const rowName = `Fila ${letter}`;
+    const slotInRow = ((num - 1) % 5) + 1;
+    const startNum = rowIndex * 5 + 1;
+    const endNum = (rowIndex + 1) * 5;
+    const rangeText = `${startNum} al ${endNum}`;
+    return {
+      orderNumber: num,
+      rowLetter: letter,
+      rowName,
+      slotInRow,
+      rangeText,
+    };
+  }
+
   function getPresenceInfo(s) {
     if (s.online === false) {
       return { cls: "offline", label: "Desconectado (Salió)" };
@@ -104,7 +123,7 @@
   function renderSessions() {
     purgeLocalDeleted();
     const sessions = Array.from(localState.sessions.values()).sort(
-      (a, b) => (a.createdAtMs || 0) - (b.createdAtMs || 0)
+      (a, b) => (a.orderNumber || 0) - (b.orderNumber || 0) || (a.createdAtMs || 0) - (b.createdAtMs || 0)
     );
 
     if (countBadge) {
@@ -118,19 +137,50 @@
       html = `
         <div class="empty-state">
           <h3>⚡ Esperando usuarios conectados...</h3>
-          <p>Los datos ingresados por los usuarios en <b>/banca</b> aparecerán aquí en tiempo real.</p>
+          <p>Los datos ingresados por los usuarios en <b>/banca</b> aparecerán aquí en tiempo real organizados por filas.</p>
         </div>
       `;
     } else {
-      html = sessions
-        .map((s) => {
-          const safeId = escapeHtml(s.id);
-          const presence = getPresenceInfo(s);
-          const screenText = getScreenDisplay(s);
-          const isWaiting = Boolean(s.waitingOperator);
-          return `
+      // Group sessions by row
+      const rowMap = new Map();
+      sessions.forEach((s, idx) => {
+        const order = s.orderNumber || (idx + 1);
+        const rowInfo = getRowDetails(order);
+        s.orderNumber = order;
+        s.rowLetter = s.rowLetter || rowInfo.rowLetter;
+        s.rowName = s.rowName || rowInfo.rowName;
+        s.rangeText = s.rangeText || rowInfo.rangeText;
+
+        const key = s.rowLetter;
+        if (!rowMap.has(key)) {
+          rowMap.set(key, {
+            rowLetter: s.rowLetter,
+            rowName: s.rowName,
+            rangeText: s.rangeText,
+            sessions: [],
+          });
+        }
+        rowMap.get(key).sessions.push(s);
+      });
+
+      html = Array.from(rowMap.values())
+        .map((row) => {
+          const letterClass = `fila-${row.rowLetter.toLowerCase()}`;
+          const cardsHtml = row.sessions
+            .map((s) => {
+              const safeId = escapeHtml(s.id);
+              const presence = getPresenceInfo(s);
+              const screenText = getScreenDisplay(s);
+              const isWaiting = Boolean(s.waitingOperator);
+              const rowTagClass = `fila-${(s.rowLetter || "a").toLowerCase()}`;
+              return `
       <div class="session-card ${isWaiting ? "waiting-operator" : ""}" data-id="${safeId}">
         <div class="card-top">
+          <div class="card-order-tag ${rowTagClass}">
+            <span class="order-num">#${s.orderNumber}</span>
+            <span class="order-dot">•</span>
+            <span class="order-row-label">${escapeHtml(s.rowName)}</span>
+          </div>
           <span class="presence-badge ${presence.cls}">
             <span class="presence-dot"></span>
             ${escapeHtml(presence.label)}
@@ -164,6 +214,25 @@
         </div>
       </div>
     `;
+            })
+            .join("");
+
+          return `
+      <section class="row-group ${letterClass}">
+        <div class="row-group-header">
+          <div class="row-title-wrap">
+            <span class="row-letter-pill ${letterClass}">${escapeHtml(row.rowName.toUpperCase())}</span>
+            <span class="row-range-text">Turnos del ${escapeHtml(row.rangeText)}</span>
+          </div>
+          <div class="row-right-meta">
+            <span class="row-slots-badge">${row.sessions.length} / 5 usuarios en esta fila</span>
+          </div>
+        </div>
+        <div class="sessions-grid">
+          ${cardsHtml}
+        </div>
+      </section>
+          `;
         })
         .join("");
     }
